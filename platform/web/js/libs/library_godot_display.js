@@ -235,7 +235,16 @@ const GodotDisplayScreen = {
 		desired_size: [0, 0],
 		hidpi: true,
 		getPixelRatio: function () {
-			return GodotDisplayScreen.hidpi ? window.devicePixelRatio || 1 : 1;
+			if (!GodotDisplayScreen.hidpi) {
+				return 1;
+			}
+			if (typeof wx !== "undefined" && wx.getWindowInfo) {
+				const info = wx.getWindowInfo();
+				if (info && info.pixelRatio) {
+					return info.pixelRatio;
+				}
+			}
+			return window.devicePixelRatio || 1;
 		},
 		isFullscreen: function () {
 			const elem = document.fullscreenElement || document.mozFullscreenElement
@@ -292,7 +301,7 @@ const GodotDisplayScreen = {
 		_updateGL: function () {
 			const gl_context_handle = _emscripten_webgl_get_current_context();
 			const gl = GL.getContext(gl_context_handle);
-			if (gl) {
+			if (gl && typeof GL.resizeOffscreenFramebuffer === 'function') {
 				GL.resizeOffscreenFramebuffer(gl);
 			}
 		},
@@ -317,11 +326,22 @@ const GodotDisplayScreen = {
 			const scale = GodotDisplayScreen.getPixelRatio();
 			if (isFullscreen || wantsFullWindow) {
 				// We need to match screen size.
-				width = Math.floor(window.innerWidth * scale);
-				height = Math.floor(window.innerHeight * scale);
+				if (typeof wx !== "undefined" && wx.getWindowInfo) {
+					const info = wx.getWindowInfo();
+					if (info && info.windowWidth && info.windowHeight) {
+						width = info.windowWidth * scale;
+						height = info.windowHeight * scale;
+					} else {
+						width = window.innerWidth * scale;
+						height = window.innerHeight * scale;
+					}
+				} else {
+					width = window.innerWidth * scale;
+					height = window.innerHeight * scale;
+				}
 			}
-			const csw = `${Math.floor(width / scale)}px`;
-			const csh = `${Math.floor(height / scale)}px`;
+			const csw = `${width / scale}px`;
+			const csh = `${height / scale}px`;
 			if (canvas.style.width !== csw || canvas.style.height !== csh || canvas.width !== width || canvas.height !== height) {
 				// Size doesn't match.
 				// Resize canvas, set correct CSS pixel size, update GL.
@@ -468,7 +488,8 @@ const GodotDisplay = {
 	godot_js_display_screen_dpi_get__proxy: 'sync',
 	godot_js_display_screen_dpi_get__sig: 'i',
 	godot_js_display_screen_dpi_get: function () {
-		return GodotDisplay.getDPI();
+		const { pixelRatio } = wx.getWindowInfo();
+		return pixelRatio * 96;
 	},
 
 	godot_js_display_pixel_ratio_get__proxy: 'sync',
@@ -499,19 +520,17 @@ const GodotDisplay = {
 	godot_js_display_size_update__proxy: 'sync',
 	godot_js_display_size_update__sig: 'i',
 	godot_js_display_size_update: function () {
-		const updated = GodotDisplayScreen.updateSize();
-		if (updated) {
-			GodotDisplayVK.updateSize();
-		}
-		return updated;
+		return 0; // Disable dynamic resize, causes flickering.
 	},
 
 	godot_js_display_screen_size_get__proxy: 'sync',
 	godot_js_display_screen_size_get__sig: 'vii',
 	godot_js_display_screen_size_get: function (width, height) {
-		const scale = GodotDisplayScreen.getPixelRatio();
-		GodotRuntime.setHeapValue(width, window.screen.width * scale, 'i32');
-		GodotRuntime.setHeapValue(height, window.screen.height * scale, 'i32');
+		const info = wx.getWindowInfo();
+		const screenWidth = info.screenWidth * info.pixelRatio;
+		const screenHeight = info.screenHeight * info.pixelRatio;
+		GodotRuntime.setHeapValue(width, screenWidth, 'i32');
+		GodotRuntime.setHeapValue(height, screenHeight, 'i32');
 	},
 
 	godot_js_display_window_size_get__proxy: 'sync',
@@ -597,33 +616,33 @@ const GodotDisplay = {
 	godot_js_display_window_title_set__proxy: 'sync',
 	godot_js_display_window_title_set__sig: 'vi',
 	godot_js_display_window_title_set: function (p_data) {
-		document.title = GodotRuntime.parseString(p_data);
+		// document.title = GodotRuntime.parseString(p_data);
 	},
 
 	godot_js_display_window_icon_set__proxy: 'sync',
 	godot_js_display_window_icon_set__sig: 'vii',
 	godot_js_display_window_icon_set: function (p_ptr, p_len) {
-		let link = document.getElementById('-gd-engine-icon');
-		const old_icon = GodotDisplay.window_icon;
-		if (p_ptr) {
-			if (link === null) {
-				link = document.createElement('link');
-				link.rel = 'icon';
-				link.id = '-gd-engine-icon';
-				document.head.appendChild(link);
-			}
-			const png = new Blob([GodotRuntime.heapSlice(HEAPU8, p_ptr, p_len)], { type: 'image/png' });
-			GodotDisplay.window_icon = URL.createObjectURL(png);
-			link.href = GodotDisplay.window_icon;
-		} else {
-			if (link) {
-				link.remove();
-			}
-			GodotDisplay.window_icon = null;
-		}
-		if (old_icon) {
-			URL.revokeObjectURL(old_icon);
-		}
+		// let link = document.getElementById('-gd-engine-icon');
+		// const old_icon = GodotDisplay.window_icon;
+		// if (p_ptr) {
+		// 	if (link === null) {
+		// 		link = document.createElement('link');
+		// 		link.rel = 'icon';
+		// 		link.id = '-gd-engine-icon';
+		// 		document.head.appendChild(link);
+		// 	}
+		// 	const png = new Blob([GodotRuntime.heapSlice(HEAPU8, p_ptr, p_len)], { type: 'image/png' });
+		// 	GodotDisplay.window_icon = URL.createObjectURL(png);
+		// 	link.href = GodotDisplay.window_icon;
+		// } else {
+		// 	if (link) {
+		// 		link.remove();
+		// 	}
+		// 	GodotDisplay.window_icon = null;
+		// }
+		// if (old_icon) {
+		// 	URL.revokeObjectURL(old_icon);
+		// }
 	},
 
 	/*

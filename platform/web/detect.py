@@ -59,7 +59,16 @@ def get_opts():
             "Use Emscripten PROXY_TO_PTHREAD option to run the main application code to a separate thread",
             False,
         ),
-        BoolVariable("wasm_simd", "Use WebAssembly SIMD to improve CPU performance", True),
+        BoolVariable(
+            "wasm_simd",
+            "Use WebAssembly SIMD to improve CPU performance (may break older iOS WebKit in WeChat Mini Game)",
+            False,
+        ),
+        BoolVariable(
+            "wasm_bigint",
+            "Use WebAssembly BigInt support for 64-bit heap arrays (default enabled in Emscripten 4.x)",
+            True,
+        ),
     ]
 
 
@@ -295,7 +304,12 @@ def configure(env: "SConsEnvironment"):
         env.Append(LINKFLAGS=["-fvisibility=hidden"])
         env.extra_suffix = ".dlink" + env.extra_suffix
 
-    env.Append(LINKFLAGS=["-sWASM_BIGINT"])
+    # WASM_BIGINT — enabled by default in Emscripten 4.x. WeChat Mini Game
+    # does not support BigInt, so allow disabling it.
+    if env["wasm_bigint"]:
+        env.Append(LINKFLAGS=["-sWASM_BIGINT"])
+    else:
+        env.Append(LINKFLAGS=["-sWASM_BIGINT=0"])
 
     # Run the main application in a web worker
     if env["proxy_to_pthread"]:
@@ -329,7 +343,10 @@ def configure(env: "SConsEnvironment"):
 
     # callMain for manual start, cwrap for the mono version.
     # Make sure also to have those memory-related functions available.
-    heap_arrays = [f"HEAP{heap_type}{heap_size}" for heap_size in [8, 16, 32, 64] for heap_type in ["", "U"]] + [
+    heap_sizes = [8, 16, 32]
+    if env["wasm_bigint"]:
+        heap_sizes.append(64)
+    heap_arrays = [f"HEAP{heap_type}{heap_size}" for heap_size in heap_sizes for heap_type in ["", "U"]] + [
         "HEAPF32",
         "HEAPF64",
     ]

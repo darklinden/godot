@@ -61,7 +61,9 @@ JavaScriptBridge::JavaScriptBridge() {
 JavaScriptBridge::~JavaScriptBridge() {}
 
 void JavaScriptBridge::_bind_methods() {
+#ifdef JAVASCRIPT_EVAL_ENABLED
 	ClassDB::bind_method(D_METHOD("eval", "code", "use_global_execution_context"), &JavaScriptBridge::eval, DEFVAL(false));
+#endif
 	ClassDB::bind_method(D_METHOD("get_interface", "interface"), &JavaScriptBridge::get_interface);
 	ClassDB::bind_method(D_METHOD("create_callback", "callable"), &JavaScriptBridge::create_callback);
 	ClassDB::bind_method(D_METHOD("is_js_buffer", "javascript_object"), &JavaScriptBridge::is_js_buffer);
@@ -84,6 +86,10 @@ void JavaScriptBridge::_bind_methods() {
 Variant JavaScriptBridge::eval(const String &p_code, bool p_use_global_exec_context) {
 	return Variant();
 }
+
+#endif
+
+#if !defined(WEB_ENABLED)
 
 Ref<JavaScriptObject> JavaScriptBridge::get_interface(const String &p_interface) {
 	return Ref<JavaScriptObject>();
