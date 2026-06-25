@@ -1,0 +1,4 @@
+[submodule "spine-runtimes"]
+	path = spine-runtimes
+	url = git@github.com:darklinden/spine-runtimes.git
+	branch = v4.3-wxmg
