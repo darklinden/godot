@@ -1,0 +1,52 @@
+# =============================================================================
+# Godot Web 平台构建配置（微信小游戏）
+# 所有构建选项集中在此，scons 命令行只需传 custom=./custom.py target=...
+# =============================================================================
+
+# --- 基础平台 ---
+platform = "web"                # 目标平台：WebAssembly
+production = "yes"              # 生产模式
+optimize = "size"               # 优化目标：体积优先
+
+# --- 线程与 WASM 特性 ---
+threads = "no"                  # 禁用多线程（微信小游戏不支持 SharedArrayBuffer）
+wasm_simd = "no"                # 禁用 SIMD（微信小游戏不支持）
+wasm_bigint = "no"              # 禁用 BigInt（避免兼容性问题）
+use_closure_compiler = "no"     # 禁用 Closure Compiler
+
+# --- 3D 支持（2D 版本设为 yes，3D 版本设为 no）---
+disable_3d = "yes"              # 是否禁用 3D 渲染
+
+# --- 物理引擎（3D 版本设为 yes，2D 版本设为 no）---
+module_jolt_physics_enabled = "no"  # Jolt 物理引擎
+
+# --- 文本渲染（2d-full / 3d 用 adv，2d-tiny 用 fb）---
+module_text_server_adv_enabled = "no"   # 高级文本服务器（MSDF 等）
+module_text_server_fb_enabled = "yes"   # 回退文本服务器
+
+# --- 禁用模块：VR / XR ---
+module_mobile_vr_enabled = "no" # 移动 VR
+module_openxr_enabled = "no"    # OpenXR
+module_webxr_enabled = "no"     # WebXR
+
+# --- 禁用模块：多媒体 ---
+module_theora_enabled = "no"    # Theora 视频解码
+module_webrtc_enabled = "no"    # WebRTC 实时通信
+
+# --- 禁用模块：纹理 / 图像 ---
+module_bcdec_enabled = "no"     # BC 纹理解码
+module_etcpak_enabled = "no"    # ETC 纹理压缩
+module_betsy_enabled = "no"     # Betsy GPU 纹理压缩
+module_svg_enabled = "no"       # SVG 渲染
+module_camera_enabled = "no"    # 相机模块
+
+# --- 禁用模块：网格处理 ---
+module_meshoptimizer_enabled = "no"  # meshoptimizer 网格优化
+module_xatlas_unwrap_enabled = "no"  # xatlas UV 展开
+
+# --- 禁用模块：网络 / 工具 ---
+module_jsonrpc_enabled = "no"   # JSON-RPC 远程调用
+module_upnp_enabled = "no"      # UPnP 网络发现
+
+# Spine 2D 骨骼动画
+module_spine_enabled = "yes"
