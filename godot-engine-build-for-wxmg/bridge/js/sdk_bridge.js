@@ -229,11 +229,36 @@ GameGlobal.__wxAddToDesktop = function (cb) {
 
 GameGlobal.__wxGetLaunchOptionsSync = function () {
 	var opts = wx.getLaunchOptionsSync();
-	return JSON.stringify({
-		scene: opts.scene || 0,
-		query: opts.query || {},
-		shareTicket: opts.shareTicket || "",
-	});
+	var scene = opts.scene || 0;
+	var query = opts.query || {};
+	var referrerInfo = opts.referrerInfo || {};
+	var shareTicket = opts.shareTicket || "";
+	var hostExtraData = opts.hostExtraData || "";
+	var chatType = opts.chatType || 0;
+	var retObj = {
+		scene: scene,
+		shareTicket: shareTicket,
+		hostExtraData: hostExtraData,
+		chatType: chatType,
+	};
+	for (var key in query) {
+		if (query.hasOwnProperty(key)) {
+			var val = query[key];
+			if (typeof val !== "object") {
+				retObj['query_' + key] = val;
+			}
+		}
+	}
+	for (var key in referrerInfo) {
+		if (referrerInfo.hasOwnProperty(key)) {
+			var val = referrerInfo[key];
+			if (typeof val !== "object") {
+				retObj['referrerInfo_' + key] = val;
+			}
+		}
+	}
+	// console.log("wx.getLaunchOptionsSync:", JSON.stringify(retObj));
+	return JSON.stringify(retObj);
 };
 
 // ---------------------------------------------------------------------------

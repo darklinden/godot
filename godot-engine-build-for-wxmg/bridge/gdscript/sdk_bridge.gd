@@ -426,16 +426,35 @@ class LaunchOptions:
 	var scene: int
 	var query: Dictionary
 	var share_ticket: String
+	var referrer_info: Dictionary
+	var host_extra_data: String
+	var chat_type: int
 
-	func _init(p_scene: int, p_query: Dictionary, p_share_ticket: String) -> void:
+	func _init(
+		p_scene: int,
+		p_query: Dictionary,
+		p_share_ticket: String,
+		p_referrer_info: Dictionary,
+		p_host_extra_data: String,
+		p_chat_type: int
+	) -> void:
 		scene = p_scene
 		query = p_query
 		share_ticket = p_share_ticket
+		referrer_info = p_referrer_info
+		host_extra_data = p_host_extra_data
+		chat_type = p_chat_type
+
+	func _to_string() -> String:
+		return (
+			"LaunchOptions(scene=%s, query=%s, ticket=%s, referrer=%s, extra=%s, chat=%s)"
+			% [scene, query, share_ticket, referrer_info, host_extra_data, chat_type]
+		)
 
 
 func get_launch_options_sync() -> LaunchOptions:
 	if _game_global == null:
-		return LaunchOptions.new(0, {}, "")
+		return LaunchOptions.new(0, {}, "", {}, "", 0)
 
 	var raw: Variant = _game_global.call("__wxGetLaunchOptionsSync")
 	if raw is String:
@@ -446,20 +465,28 @@ func get_launch_options_sync() -> LaunchOptions:
 				var data: Variant = json.get_data()
 				if data is Dictionary:
 					var dict: Dictionary = data
-					var scene_val: Variant = dict.get("scene", 0)
-					var query_val: Variant = dict.get("query", {})
-					var ticket_val: Variant = dict.get("shareTicket", "")
-					var scene: int = 0
-					var query_dict: Dictionary = {}
+					# JSON.parse returns float for numbers — cast to int
+					var scene_raw: float = dict.get("scene", 0)
+					var scene: int = int(scene_raw)
 					var ticket: String = ""
-					if scene_val is int:
-						scene = scene_val
-					if query_val is Dictionary:
-						query_dict = query_val
-					if ticket_val is String:
-						ticket = ticket_val
-					return LaunchOptions.new(scene, query_dict, ticket)
-	return LaunchOptions.new(0, {}, "")
+					var host_extra_data: String = ""
+					var chat_raw: float = dict.get("chatType", 0)
+					var chat_type: int = int(chat_raw)
+					if dict.get("shareTicket") is String:
+						ticket = dict["shareTicket"]
+					if dict.get("hostExtraData") is String:
+						host_extra_data = dict["hostExtraData"]
+					var query_dict: Dictionary = {}
+					var referrer_dict: Dictionary = {}
+					for key: String in dict.keys():
+						if key.begins_with("query_"):
+							query_dict[key.substr(6)] = dict[key]
+						elif key.begins_with("referrerInfo_"):
+							referrer_dict[key.substr(13)] = dict[key]
+					return LaunchOptions.new(
+						scene, query_dict, ticket, referrer_dict, host_extra_data, chat_type
+					)
+	return LaunchOptions.new(0, {}, "", {}, "", 0)
 
 
 # ---------------------------------------------------------------------------
