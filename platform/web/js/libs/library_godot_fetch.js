@@ -82,6 +82,11 @@ const GodotFetch = {
             if (!obj) {
                 return;
             }
+            if (obj.response) {
+                GodotRuntime.warn("Ignoring wx.request error after data was already received: " + (err && err.errMsg ? err.errMsg : JSON.stringify(err)));
+                obj.done = true;
+                return;
+            }
             obj.error = err;
         },
 
@@ -111,39 +116,28 @@ const GodotFetch = {
                     data: body,
                     header: headers,
                     responseType: 'arraybuffer',
-                    enableChunked: true,
                     success: (res) => {
                         const obj = IDHandler.get(id);
                         if (obj) {
-                            // Fallback: if onHeadersReceived didn't fire or didn't set response
-                            if (!obj.response) {
-                                GodotFetch.onheaders(id, res);
+                            obj.status = res.statusCode || 0;
+                            obj.response = { header: typeof res.header === 'object' ? res.header : {} };
+                            if (res.data) {
+                                const uint8Data = new Uint8Array(res.data);
+                                obj.chunks.push(uint8Data);
+                                if (obj.bodySize === -1) obj.bodySize = 0;
+                                obj.bodySize += uint8Data.byteLength;
                             }
-                            
-                            // Fallback: if no chunks were received via onChunkReceived, check res.data
-                            // This handles cases where enableChunked might be ignored or data is small
-                            if (obj.chunks.length === 0 && res.data) {
-                                GodotFetch.onchunk(id, res.data);
-                            }
+                            obj.done = true;
+                            obj.reading = false;
                         }
-                        GodotFetch.ondone(id);
                     },
                     fail: (err) => {
+                        console.error(err);
                         GodotFetch.onerror(id, err);
                     }
                 });
 
                 obj.requestTask = requestTask;
-
-                requestTask.onHeadersReceived((res) => {
-                    GodotFetch.onheaders(id, res);
-                });
-
-                requestTask.onChunkReceived((res) => {
-                    if (res.data) {
-                        GodotFetch.onchunk(id, res.data);
-                    }
-                });
 
             } catch (e) {
                 GodotFetch.onerror(id, { errMsg: 'Exception: ' + e.message, errno: -1 });
