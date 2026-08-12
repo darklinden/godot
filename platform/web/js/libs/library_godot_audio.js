@@ -1538,6 +1538,10 @@ const _GodotAudio = {
 				if (!playback || playback.ctx !== ctx) {
 					return;
 				}
+				// Cache final position before cleanup, in case it's needed later
+				if (playback.finalPosition === undefined) {
+					playback.finalPosition = ctx.currentTime;
+				}
 				GodotAudio.WX.activePlaybacks.delete(playbackObjectId);
 				if (destroy) {
 					GodotAudio.WX.destroyContext(ctx);
@@ -1649,6 +1653,7 @@ const _GodotAudio = {
 						path: filePath,
 						loopMode: loopMode,
 						framesTotal: framesTotal,
+						duration: framesTotal / sampleRate,
 						loopBegin: loopBegin,
 						loopEnd: loopEnd,
 					});
@@ -1772,19 +1777,75 @@ const _GodotAudio = {
 					hasStarted = true;
 				});
 
+				ctx.onTimeUpdate(() => {
+					// Fallback finished detection: if audio has reached its natural end
+					// but onEnded/onStop haven't fired, notify the engine proactively.
+					// This handles edge cases where WeChat's InnerAudioContext events
+					// are unreliable on certain real devices.
+					const p = GodotAudio.WX.activePlaybacks.get(playbackObjectId);
+					if (!p || p.hasEnded) {
+						return;
+					}
+					if (streamInfo.loopMode !== "disabled") {
+						return; // Looping audio should not self-terminate
+					}
+					if (ctx.paused) {
+						return;
+					}
+					// If currentTime is within 0.15s of the expected duration, treat as finished
+					if (ctx.currentTime >= streamInfo.duration - 0.15) {
+						p.hasEnded = true;
+						p.finalPosition = ctx.currentTime;
+						if (GodotAudio.sampleFinishedCallback) {
+							const playbackIdPtr = GodotRuntime.allocString(playbackObjectId);
+							GodotAudio.sampleFinishedCallback(playbackIdPtr);
+							GodotRuntime.free(playbackIdPtr);
+						}
+					}
+				});
+
 				ctx.onEnded(() => {
+					// Prevent duplicate handling (onEnded may fire before or after onStop)
+					const p = GodotAudio.WX.activePlaybacks.get(playbackObjectId);
+					if (!p || p.hasEnded) {
+						return;
+					}
+					p.hasEnded = true;
+
+					// Cache final position before cleanup
+					p.finalPosition = ctx.currentTime;
+
 					// Notify engine that playback finished
+					// Do NOT cleanup here — the C++ callback chain calls stopSample()
+					// which handles context cleanup
 					if (GodotAudio.sampleFinishedCallback) {
 						const playbackIdPtr = GodotRuntime.allocString(playbackObjectId);
 						GodotAudio.sampleFinishedCallback(playbackIdPtr);
 						GodotRuntime.free(playbackIdPtr);
 					}
-
-					// Clean up
-					GodotAudio.WX.cleanupPlayback(playbackObjectId, ctx, false);
 				});
 
 				ctx.onStop(() => {
+					// If this was triggered by an active stop (user called stop()), skip notification
+					const p = GodotAudio.WX.activePlaybacks.get(playbackObjectId);
+					if (!p) {
+						return;
+					}
+					if (p.stopIsActive) {
+						GodotAudio.WX.cleanupPlayback(playbackObjectId, ctx, false);
+						return;
+					}
+					// Passive stop (audio ended naturally or context was stopped externally)
+					// — notify engine like onEnded would
+					if (!p.hasEnded) {
+						p.hasEnded = true;
+						p.finalPosition = ctx.currentTime;
+						if (GodotAudio.sampleFinishedCallback) {
+							const playbackIdPtr = GodotRuntime.allocString(playbackObjectId);
+							GodotAudio.sampleFinishedCallback(playbackIdPtr);
+							GodotRuntime.free(playbackIdPtr);
+						}
+					}
 					GodotAudio.WX.cleanupPlayback(playbackObjectId, ctx, false);
 				});
 
@@ -1798,6 +1859,10 @@ const _GodotAudio = {
 					ctx: ctx,
 					busIndex: busIndex,
 					baseVolume: baseVolume,
+					stopIsActive: false,
+					hasEnded: false,
+					finalPosition: undefined,
+					streamObjectId: streamObjectId,
 				});
 
 				// Start playback
@@ -1816,6 +1881,7 @@ const _GodotAudio = {
 					return;
 				}
 
+				playback.stopIsActive = true;
 				GodotAudio.WX.log(`Stopping playback ${playbackObjectId}`);
 
 				// Remove from active playbacks first to prevent onEnded from double-releasing
@@ -1852,6 +1918,10 @@ const _GodotAudio = {
 				const playback = GodotAudio.WX.activePlaybacks.get(playbackObjectId);
 				if (!playback) {
 					return 0;
+				}
+				// Return cached final position if playback has ended
+				if (playback.finalPosition !== undefined) {
+					return playback.finalPosition;
 				}
 				return playback.ctx.currentTime;
 			},
