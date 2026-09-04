@@ -1,6 +1,13 @@
 class_name SdkBridge
 extends Node
 
+## High-end devices (wx modelLevel 1) keep 60fps; everything else — mid/low/
+## unknown — runs at 30fps to reduce CPU/GPU load and heat on WeChat Mini Game
+## (web main loop skips frames via Engine.max_fps).
+const HIGH_END_MODEL_LEVEL: int = 1
+const DEFAULT_MAX_FPS: int = 30
+const HIGH_END_MAX_FPS: int = 60
+
 ## Eval-free JS bridge to WeChat Mini Game APIs.
 ##
 ## Uses direct JavaScriptObject method calls (get_interface + create_callback)
@@ -56,6 +63,14 @@ var _add_to_desktop_done: bool = false
 var _clipboard_result: Variant = null
 var _clipboard_done: bool = false
 
+# Subscribe message state
+var _subscribe_result: Variant = null
+var _subscribe_done: bool = false
+
+# Device benchmark state
+var _device_benchmark_result: Variant = null
+var _device_benchmark_done: bool = false
+
 # ---------------------------------------------------------------------------
 # Init
 # ---------------------------------------------------------------------------
@@ -68,6 +83,22 @@ func _ready() -> void:
 	_game_global = JavaScriptBridge.get_interface("GameGlobal")
 	if _game_global == null:
 		printerr("[SdkBridge] GameGlobal interface not found")
+		return
+	_apply_frame_rate()
+
+
+## Queries wx device benchmark and caps Engine.max_fps (30fps unless high-end).
+## Runs on this autoload so it survives scene changes and never blocks startup.
+## Only WeChat exports expose GameGlobal — plain web exports skip this entirely.
+func _apply_frame_rate() -> void:
+	if not is_wechat_available():
+		return
+	var info: Dictionary = await get_device_benchmark_async()
+	var model_level_f: float = info.get("model_level", 0)
+	var model_level: int = int(model_level_f)
+	var fps: int = HIGH_END_MAX_FPS if model_level == HIGH_END_MODEL_LEVEL else DEFAULT_MAX_FPS
+	Engine.max_fps = fps
+	print("[SdkBridge] Device benchmark modelLevel=", model_level, " -> max_fps=", fps)
 
 
 # ---------------------------------------------------------------------------
@@ -490,6 +521,35 @@ func get_launch_options_sync() -> LaunchOptions:
 
 
 # ---------------------------------------------------------------------------
+# Storage — wx.setStorageSync() / wx.getStorageSync()
+# ---------------------------------------------------------------------------
+
+
+func set_storage_sync(storage_key: String, value: Variant) -> void:
+	if _game_global == null:
+		return
+	var json_str: String = JSON.stringify(value)
+	_game_global.call("__wxSetStorageSync", storage_key, json_str)
+
+
+func get_storage_sync(storage_key: String) -> Variant:
+	if _game_global == null:
+		return {}
+	var raw: Variant = _game_global.call("__wxGetStorageSync", storage_key)
+	if not (raw is String):
+		return {}
+	var raw_str: String = raw
+	if raw_str.is_empty() or raw_str == "{}":
+		return {}
+	var json: JSON = JSON.new()
+	if json.parse(raw_str) == OK:
+		var data: Variant = json.get_data()
+		if data is Dictionary:
+			return data
+	return {}
+
+
+# ---------------------------------------------------------------------------
 # Clipboard
 # ---------------------------------------------------------------------------
 
@@ -545,3 +605,111 @@ func get_clipboard_data_async() -> String:
 	if _clipboard_result is String:
 		return _clipboard_result
 	return ""
+
+
+# ---------------------------------------------------------------------------
+# Subscribe message — wx.requestSubscribeMessage() → Dictionary
+# ---------------------------------------------------------------------------
+
+
+func _on_subscribe_cb(v: Variant) -> void:
+	_subscribe_result = _unwrap(v)
+	_subscribe_done = true
+
+
+func request_subscribe_message_async(tmpl_ids: PackedStringArray) -> Dictionary:
+	if _game_global == null:
+		return {}
+
+	_subscribe_result = null
+	_subscribe_done = false
+
+	var cb: JavaScriptObject = JavaScriptBridge.create_callback(Callable(self, "_on_subscribe_cb"))
+	if cb == null:
+		printerr("[SdkBridge] create_callback failed for __wxRequestSubscribeMessage")
+		return {}
+
+	# JavaScriptBridge can't convert PackedStringArray or Array[String]
+	# to JS Array; pass as comma-separated string and let JS split.
+	var tmpl_str: String = ",".join(tmpl_ids)
+	print("[SdkBridge] requestSubscribeMessage tmplIds=", tmpl_str)
+
+	_game_global.call("__wxRequestSubscribeMessage", tmpl_str, cb)
+
+	while not _subscribe_done:
+		if not _tree:
+			return {}
+		await _tree.process_frame
+
+	if _subscribe_result is String:
+		var str_result: String = _subscribe_result
+		if not str_result.is_empty():
+			var json: JSON = JSON.new()
+			if json.parse(str_result) == OK:
+				var data: Variant = json.get_data()
+				if data is Dictionary:
+					return data
+	return {}
+
+
+# ---------------------------------------------------------------------------
+# Device benchmark — wx.getDeviceBenchmarkInfo() → Dictionary
+# Returns {benchmark_level: int, model_level: int}; model_level:
+# 0 unknown, 1 high-end, 2 mid, 3 low. Fallback {-1, 0} when unavailable.
+# ---------------------------------------------------------------------------
+
+
+func _on_device_benchmark_cb(v: Variant) -> void:
+	_device_benchmark_result = _unwrap(v)
+	_device_benchmark_done = true
+
+
+func _on_device_benchmark_timeout() -> void:
+	if _device_benchmark_done:
+		return
+	printerr("[SdkBridge] wx.getDeviceBenchmarkInfo timed out — fallback unknown tier")
+	_device_benchmark_result = ""
+	_device_benchmark_done = true
+
+
+func get_device_benchmark_async() -> Dictionary:
+	if _game_global == null:
+		return {"benchmark_level": -1, "model_level": 0}
+
+	_device_benchmark_result = null
+	_device_benchmark_done = false
+
+	var cb: JavaScriptObject = JavaScriptBridge.create_callback(
+		Callable(self, "_on_device_benchmark_cb")
+	)
+	if cb == null:
+		printerr("[SdkBridge] create_callback failed for __wxGetDeviceBenchmark")
+		return {"benchmark_level": -1, "model_level": 0}
+
+	_game_global.call("__wxGetDeviceBenchmark", cb)
+
+	# Timeout guard: some platforms (e.g. devtools) may never invoke the
+	# callback. Fall back to unknown tier after 2s instead of hanging.
+	var timeout: SceneTreeTimer = _tree.create_timer(2.0) if _tree else null
+	if timeout:
+		var _c: int = timeout.timeout.connect(_on_device_benchmark_timeout)
+	while not _device_benchmark_done:
+		if not _tree:
+			return {"benchmark_level": -1, "model_level": 0}
+		await _tree.process_frame
+
+	if _device_benchmark_result is String:
+		var str_result: String = _device_benchmark_result
+		if not str_result.is_empty():
+			var json: JSON = JSON.new()
+			if json.parse(str_result) == OK:
+				var data: Variant = json.get_data()
+				if data is Dictionary:
+					var dict: Dictionary = data
+					var benchmark_raw: float = dict.get("benchmarkLevel", -1)
+					var model_raw: float = dict.get("modelLevel", 0)
+					return {
+						"benchmark_level": int(benchmark_raw),
+						"model_level": int(model_raw),
+					}
+	return {"benchmark_level": -1, "model_level": 0}

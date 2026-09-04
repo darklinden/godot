@@ -257,8 +257,48 @@ GameGlobal.__wxGetLaunchOptionsSync = function () {
 			}
 		}
 	}
-	// console.log("wx.getLaunchOptionsSync:", JSON.stringify(retObj));
+	console.log("wx.getLaunchOptionsSync:", JSON.stringify(retObj));
 	return JSON.stringify(retObj);
+};
+
+// ---------------------------------------------------------------------------
+// Device benchmark — wx.getDeviceBenchmarkInfo()
+// Async callback style. Returns JSON {benchmarkLevel: int, modelLevel: int}
+// (modelLevel: 0 unknown, 1 high-end, 2 mid, 3 low) or "" when unavailable
+// (older base lib without wx.getDeviceBenchmarkInfo).
+// ---------------------------------------------------------------------------
+
+GameGlobal.__wxGetDeviceBenchmark = function (cb) {
+	if (!cb) return;
+	// Web (non-WeChat) exports don't have wx at all — fall back to unknown tier
+	// so the GDScript side never waits for a timeout.
+	if (typeof wx === "undefined" || typeof wx.getDeviceBenchmarkInfo !== "function") {
+		console.warn("[SdkBridge] wx.getDeviceBenchmarkInfo unavailable, fallback unknown");
+		if (cb) cb("");
+		return;
+	}
+	try {
+		wx.getDeviceBenchmarkInfo({
+			success: function (res) {
+				if (cb) {
+					cb(
+						JSON.stringify({
+							benchmarkLevel:
+								typeof res.benchmarkLevel === "number" ? res.benchmarkLevel : -1,
+							modelLevel: typeof res.modelLevel === "number" ? res.modelLevel : 0,
+						})
+					);
+				}
+			},
+			fail: function (err) {
+				console.warn("[SdkBridge] wx.getDeviceBenchmarkInfo failed:", err && err.errMsg);
+				if (cb) cb("");
+			},
+		});
+	} catch (e) {
+		console.warn("[SdkBridge] wx.getDeviceBenchmarkInfo threw:", e && e.message);
+		if (cb) cb("");
+	}
 };
 
 // ---------------------------------------------------------------------------
@@ -279,4 +319,59 @@ GameGlobal.__wxGetClipboardData = function (cb) {
 		success: function (res) { if (cb) cb(res.data || ""); },
 		fail: function () { if (cb) cb(""); },
 	});
+};
+
+// ---------------------------------------------------------------------------
+// Subscribe message — wx.requestSubscribeMessage()
+// Callback receives: JSON string e.g. {"tmplId":"accept","tmplId2":"reject"}
+// ---------------------------------------------------------------------------
+
+GameGlobal.__wxRequestSubscribeMessage = function (tmplStr, cb) {
+	if (typeof tmplStr !== "string" || tmplStr.length === 0) {
+		if (cb) cb("{}");
+		return;
+	}
+	var tmplIds = tmplStr.split(",");
+	console.log("[sdk_bridge] requestSubscribeMessage tmplIds:", tmplIds);
+	wx.requestSubscribeMessage({
+		tmplIds: tmplIds,
+		success: function (res) {
+			console.log("[sdk_bridge] requestSubscribeMessage success:", JSON.stringify(res));
+			if (cb) cb(JSON.stringify(res));
+		},
+		fail: function (err) {
+			console.error("[sdk_bridge] requestSubscribeMessage failed:", JSON.stringify(err));
+			if (cb) cb("{}");
+		},
+	});
+};
+
+// ---------------------------------------------------------------------------
+// Storage — wx.setStorageSync() / wx.getStorageSync()
+// Both synchronous.
+// ---------------------------------------------------------------------------
+
+GameGlobal.__wxSetStorageSync = function (key, jsonValue) {
+	try {
+		var parsed = JSON.parse(jsonValue);
+		wx.setStorageSync(key, parsed);
+	} catch (e) {
+		console.error("[sdk_bridge] wx.setStorageSync failed:", e);
+	}
+};
+
+GameGlobal.__wxGetStorageSync = function (key) {
+	try {
+		var value = wx.getStorageSync(key);
+		if (value === "" || value === undefined || value === null) {
+			return "{}";
+		}
+		if (typeof value === "object") {
+			return JSON.stringify(value);
+		}
+		return String(value);
+	} catch (e) {
+		console.error("[sdk_bridge] wx.getStorageSync failed:", e);
+		return "{}";
+	}
 };
