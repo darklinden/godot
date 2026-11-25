@@ -243,10 +243,21 @@ func setup_on_show(on_show_callback: Callable) -> void:
 
 ## Set multi-scene share config. Passed directly as parameters to avoid
 ## the window identity mismatch between get_interface("window") and JS global.
-func set_share_config(title: String, image_url: String = "", query: String = "") -> void:
+## [param image_url] is the 5:4 share card image (relative code package path or
+## URL); [param image_preview_url] is the Moments preview image (9:16);
+## [param timeline_title] falls back to [param title] when empty.
+func set_share_config(
+	title: String,
+	image_url: String = "",
+	query: String = "",
+	image_preview_url: String = "",
+	timeline_title: String = ""
+) -> void:
 	if _game_global == null:
 		return
-	_game_global.call("__wxSetShareConfig", title, image_url, query)
+	_game_global.call(
+		"__wxSetShareConfig", title, image_url, query, image_preview_url, timeline_title
+	)
 
 
 func _on_share_cb(v: Variant) -> void:
@@ -278,10 +289,13 @@ func share_app_message_async() -> String:
 	return "fail"
 
 
-func update_share_menu(with_share_ticket: bool, is_private_message: bool = true) -> void:
+## Makes the capsule menu's "转发" and "分享到朋友圈" items clickable — both are
+## disabled until wx.showShareMenu() is called. Call once at startup.
+## Also turns on withShareTicket, so group entries expose a shareTicket.
+func show_share_menu(with_share_ticket: bool = true) -> void:
 	if _game_global == null:
 		return
-	_game_global.call("__wxUpdateShareMenu", with_share_ticket, is_private_message)
+	_game_global.call("__wxShowShareMenu", with_share_ticket)
 
 
 # ---------------------------------------------------------------------------

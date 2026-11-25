@@ -87,20 +87,28 @@ GameGlobal.__wxOnShow = function (cb) {
 };
 
 // ---------------------------------------------------------------------------
-// Share config — stores {title, imageUrl, query} for multi-scene share
-// Used by both passive (onShareAppMessage) and active (shareAppMessage) share.
-// Stored on GameGlobal to avoid the window identity mismatch between
-// get_interface("window") and the JS global window.
+// Share config — stores {title, imageUrl, query, imagePreviewUrl, timelineTitle}
+// Used by passive (onShareAppMessage / onShareTimeline) and active
+// (shareAppMessage) share. Stored on GameGlobal to avoid the window identity
+// mismatch between get_interface("window") and the JS global window.
 // Callback: none (fire-and-forget)
 // ---------------------------------------------------------------------------
 
-GameGlobal.__wxShareConfigData = { title: "", imageUrl: "", query: "" };
+GameGlobal.__wxShareConfigData = {
+	title: "",
+	imageUrl: "",
+	query: "",
+	imagePreviewUrl: "",
+	timelineTitle: "",
+};
 
-GameGlobal.__wxSetShareConfig = function (title, imageUrl, query) {
+GameGlobal.__wxSetShareConfig = function (title, imageUrl, query, imagePreviewUrl, timelineTitle) {
 	GameGlobal.__wxShareConfigData = {
 		title: title || "",
 		imageUrl: imageUrl || "",
 		query: query || "",
+		imagePreviewUrl: imagePreviewUrl || "",
+		timelineTitle: timelineTitle || title || "",
 	};
 };
 
@@ -113,6 +121,20 @@ wx.onShareAppMessage(function () {
 		query: cfg.query || "",
 	};
 });
+
+// Register wx.onShareTimeline once (base lib 2.11.3+, Android-only Beta).
+// imageUrl is the Moments card, imagePreviewUrl the Moments preview image.
+if (typeof wx.onShareTimeline === "function") {
+	wx.onShareTimeline(function () {
+		var cfg = GameGlobal.__wxShareConfigData || {};
+		return {
+			title: cfg.timelineTitle || cfg.title || "",
+			imageUrl: cfg.imageUrl || "",
+			imagePreviewUrl: cfg.imagePreviewUrl || "",
+			query: cfg.query || "",
+		};
+	});
+}
 
 // ---------------------------------------------------------------------------
 // Active share — wx.shareAppMessage()
@@ -132,7 +154,32 @@ GameGlobal.__wxShareAppMessage = function (cb) {
 };
 
 // ---------------------------------------------------------------------------
+// Share menu — wx.showShareMenu()
+// This is what makes the "转发" and "分享到朋友圈" menu items clickable; both
+// start out disabled. "shareTimeline" requires "shareAppMessage" to be listed
+// too, and needs base lib 2.11.3+ (Android-only Beta), so fall back to the
+// plain call when the menus parameter is rejected.
+// Callback: none (fire-and-forget)
+// ---------------------------------------------------------------------------
+
+GameGlobal.__wxShowShareMenu = function (withShareTicket) {
+	if (typeof wx.showShareMenu !== "function") {
+		return;
+	}
+	var with_ticket = withShareTicket === true || withShareTicket === "true";
+	wx.showShareMenu({
+		withShareTicket: with_ticket,
+		menus: ["shareAppMessage", "shareTimeline"],
+		fail: function () {
+			wx.showShareMenu({ withShareTicket: with_ticket });
+		},
+	});
+};
+
+// ---------------------------------------------------------------------------
 // Share menu — wx.updateShareMenu()
+// Only tweaks share attributes (e.g. shareTicket); it does NOT light up the
+// menu items — call __wxShowShareMenu for that.
 // Callback: none (fire-and-forget)
 // ---------------------------------------------------------------------------
 
