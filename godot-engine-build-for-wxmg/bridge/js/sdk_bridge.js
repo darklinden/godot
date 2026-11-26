@@ -369,6 +369,66 @@ GameGlobal.__wxGetClipboardData = function (cb) {
 };
 
 // ---------------------------------------------------------------------------
+// Privacy — wx.getPrivacySetting()
+// Reports whether the user still has to accept the privacy guide, plus the
+// guide's name. Callback receives a JSON string:
+// {"needAuthorization":bool,"privacyContractName":string} or "{}" on failure.
+// Requires base library 2.32.3+.
+// ---------------------------------------------------------------------------
+
+GameGlobal.__wxGetPrivacySetting = function (cb) {
+	try {
+		if (typeof wx.getPrivacySetting !== "function") {
+			if (cb) cb("{}");
+			return;
+		}
+		wx.getPrivacySetting({
+			success: function (res) {
+				var out = {
+					needAuthorization: !!(res && res.needAuthorization),
+					privacyContractName: (res && res.privacyContractName) || "",
+				};
+				console.log("[sdk_bridge] getPrivacySetting:", JSON.stringify(out));
+				if (cb) cb(JSON.stringify(out));
+			},
+			fail: function (err) {
+				var errMsg = (err && err.errMsg) || "";
+				console.warn("[sdk_bridge] wx.getPrivacySetting failed:", errMsg);
+				if (cb) cb("{}");
+			},
+		});
+	} catch (e) {
+		console.warn("[sdk_bridge] wx.getPrivacySetting threw:", e && e.message);
+		if (cb) cb("{}");
+	}
+};
+
+// ---------------------------------------------------------------------------
+// Privacy — wx.openPrivacyContract()
+// Opens the platform-hosted privacy policy page. Callback receives:
+// "ok" | "fail:<errMsg>"
+// Requires base library 2.32.3+ and a privacy guide configured in MP backend.
+// ---------------------------------------------------------------------------
+
+GameGlobal.__wxOpenPrivacyContract = function (cb) {
+	try {
+		wx.openPrivacyContract({
+			success: function () {
+				if (cb) cb("ok");
+			},
+			fail: function (err) {
+				var errMsg = (err && err.errMsg) || "";
+				console.warn("[sdk_bridge] wx.openPrivacyContract failed:", errMsg);
+				if (cb) cb("fail:" + errMsg);
+			},
+		});
+	} catch (e) {
+		console.warn("[sdk_bridge] wx.openPrivacyContract threw:", e && e.message);
+		if (cb) cb("fail:" + ((e && e.message) || "throw"));
+	}
+};
+
+// ---------------------------------------------------------------------------
 // Subscribe message — wx.requestSubscribeMessage()
 // Callback receives: JSON string e.g. {"tmplId":"accept","tmplId2":"reject"}
 // ---------------------------------------------------------------------------

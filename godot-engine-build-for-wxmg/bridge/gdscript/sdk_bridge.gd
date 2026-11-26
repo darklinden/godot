@@ -71,6 +71,14 @@ var _subscribe_done: bool = false
 var _device_benchmark_result: Variant = null
 var _device_benchmark_done: bool = false
 
+# Privacy contract state
+var _privacy_result: Variant = null
+var _privacy_done: bool = false
+
+# Privacy setting state
+var _privacy_setting_result: Variant = null
+var _privacy_setting_done: bool = false
+
 # ---------------------------------------------------------------------------
 # Init
 # ---------------------------------------------------------------------------
@@ -618,6 +626,120 @@ func get_clipboard_data_async() -> String:
 
 	if _clipboard_result is String:
 		return _clipboard_result
+	return ""
+
+
+# ---------------------------------------------------------------------------
+# Privacy — wx.getPrivacySetting() → {needAuthorization, privacyContractName}
+# ---------------------------------------------------------------------------
+
+
+func _on_privacy_setting_cb(v: Variant) -> void:
+	_privacy_setting_result = _unwrap(v)
+	_privacy_setting_done = true
+
+
+func _on_privacy_setting_timeout() -> void:
+	if _privacy_setting_done:
+		return
+	printerr("[SdkBridge] wx.getPrivacySetting timed out — is __wxGetPrivacySetting present?")
+	_privacy_setting_result = "{}"
+	_privacy_setting_done = true
+
+
+## Reports whether the user still needs to accept the privacy guide and what the
+## guide is called. Returns {} when unavailable (non-WeChat, old base library).
+func get_privacy_setting_async() -> Dictionary:
+	if _game_global == null:
+		return {}
+
+	_privacy_setting_result = null
+	_privacy_setting_done = false
+
+	var cb: JavaScriptObject = JavaScriptBridge.create_callback(
+		Callable(self, "_on_privacy_setting_cb")
+	)
+	if cb == null:
+		printerr("[SdkBridge] create_callback failed for __wxGetPrivacySetting")
+		return {}
+
+	_game_global.call("__wxGetPrivacySetting", cb)
+
+	# Hang guard: a missing JS shim never calls back.
+	var timeout: SceneTreeTimer = _tree.create_timer(2.0) if _tree else null
+	if timeout:
+		var _c: int = timeout.timeout.connect(_on_privacy_setting_timeout)
+	while not _privacy_setting_done:
+		if not _tree:
+			return {}
+		await _tree.process_frame
+
+	if _privacy_setting_result is String:
+		var raw: String = _privacy_setting_result
+		if not raw.is_empty():
+			var json: JSON = JSON.new()
+			if json.parse(raw) == OK:
+				var data: Variant = json.get_data()
+				if data is Dictionary:
+					var dict: Dictionary = data
+					var need_auth_raw: Variant = dict.get("needAuthorization", false)
+					var need_auth: bool = false
+					if need_auth_raw is bool:
+						need_auth = need_auth_raw
+					return {
+						"need_authorization": need_auth,
+						"contract_name": str(dict.get("privacyContractName", "")),
+					}
+	return {}
+
+
+# ---------------------------------------------------------------------------
+# Privacy — wx.openPrivacyContract() → "ok" | "fail:<errMsg>" | ""
+# ---------------------------------------------------------------------------
+
+
+func _on_privacy_cb(v: Variant) -> void:
+	_privacy_result = _unwrap(v)
+	_privacy_done = true
+
+
+func _on_privacy_timeout() -> void:
+	if _privacy_done:
+		return
+	printerr("[SdkBridge] wx.openPrivacyContract timed out — is __wxOpenPrivacyContract present?")
+	_privacy_result = ""
+	_privacy_done = true
+
+
+## Opens the platform-hosted privacy policy page (MP backend 用户隐私保护指引).
+## Returns "ok" on success, "fail:<errMsg>" on WeChat-side failure, "" when the
+## bridge is unavailable (non-WeChat or JS shim missing).
+func open_privacy_contract_async() -> String:
+	if _game_global == null:
+		return ""
+
+	_privacy_result = null
+	_privacy_done = false
+
+	var cb: JavaScriptObject = JavaScriptBridge.create_callback(Callable(self, "_on_privacy_cb"))
+	if cb == null:
+		printerr("[SdkBridge] create_callback failed for __wxOpenPrivacyContract")
+		return ""
+
+	_game_global.call("__wxOpenPrivacyContract", cb)
+
+	# Hang guard: if the JS shim is missing (stale WeChat template), call() does
+	# nothing and the callback never fires — never await forever on that.
+	var timeout: SceneTreeTimer = _tree.create_timer(3.0) if _tree else null
+	if timeout:
+		var _c: int = timeout.timeout.connect(_on_privacy_timeout)
+	while not _privacy_done:
+		if not _tree:
+			return ""
+		await _tree.process_frame
+
+	if _privacy_result is String:
+		return _privacy_result
 	return ""
 
 
